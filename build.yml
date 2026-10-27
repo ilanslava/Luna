@@ -1,0 +1,36 @@
+name: Build APK
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: 17 }
+      - run: npm install
+      - run: mkdir -p www && cp index.html www/index.html
+      - name: Inject build number, repo and MP3 encoder
+        run: |
+          sed -i "s|__LUNA_BUILD__|${{ github.run_number }}|; s|__LUNA_REPO__|${{ github.repository }}|" www/index.html
+          cp node_modules/lamejs/lame.min.js www/ || cp node_modules/lamejs/lame.all.js www/lame.min.js
+      - run: npx cap add android
+      - name: Version code (must grow every build)
+        run: sed -i "s/versionCode 1/versionCode ${{ github.run_number }}/; s/versionName \"1.0\"/versionName \"1.0.${{ github.run_number }}\"/" android/app/build.gradle
+      - run: npx cap sync android
+      - name: Same signing key every build (lets updates install over the old app)
+        run: mkdir -p ~/.android && cp debug.keystore ~/.android/debug.keystore
+      - run: cd android && ./gradlew assembleDebug
+      - run: cp android/app/build/outputs/apk/debug/app-debug.apk luna.apk
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.run_number }}
+          name: Luna build ${{ github.run_number }}
+          files: luna.apk
+          make_latest: true
